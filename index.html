@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIGA Galery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for better aesthetics in dark mode */
+        body::-webkit-scrollbar {
+            width: 8px;
+        }
+        body::-webkit-scrollbar-thumb {
+            background-color: #3b82f6; /* blue-500 */
+            border-radius: 4px;
+        }
+        body::-webkit-scrollbar-track {
+            background-color: #1f2937; /* gray-800 */
+        }
+
+        /* Hide the default file input button */
+        #file-input {
+            display: none;
+        }
+
+        /* Style for media objects */
+        .media-object {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+            cursor: pointer;
+        }
+        .media-card:hover .media-object {
+            transform: scale(1.03);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+
+    <header class="bg-gray-800 shadow-lg p-4 sticky top-0 z-10">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-3xl font-extrabold text-blue-400 tracking-wider">GIGA Gallery</h1>
+            
+            <label for="file-input" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-200 shadow-md">
+                Pridať média
+            </label>
+            <input type="file" id="file-input" multiple accept="image/*,video/*" />
+        </div>
+    </header>
+
+    <main class="container mx-auto p-4 mt-6">
+        <p id="empty-state" class="text-center text-gray-500 text-xl hidden mt-20">
+            Zatiaľ žiadne médiá. Kliknite na "Pridať média" a začnite nahrávať (uložené lokálne vo Vašom prehliadači).
+        </p>
+
+        <div id="media-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            <!-- Media items will be injected here -->
+        </div>
+
+        <p class="text-xs text-center text-gray-600 mt-10">
+            Poznámka: Médiá sú uložené lokálne vo Vašom prehliadači (Base64 v LocalStorage). Pri veľkom počte/veľkých súboroch môže dôjsť k obmedzeniu kapacity prehliadača.
+        </p>
+    </main>
+
+    <!-- Lightbox Modal for Full View -->
+    <div id="lightbox-modal" class="fixed inset-0 bg-black bg-opacity-95 z-50 flex items-center justify-center hidden p-4" onclick="closeLightbox()">
+        <div class="max-w-7xl max-h-[90vh] relative" onclick="event.stopPropagation()">
+            <button onclick="closeLightbox()" class="absolute top-4 right-4 text-white text-4xl hover:text-red-500 transition z-50">&times;</button>
+            <div id="lightbox-content" class="w-full h-full">
+                <!-- Media content will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'gigaGalleryMediaV1';
+        const mediaGrid = document.getElementById('media-grid');
+        const fileInput = document.getElementById('file-input');
+        const emptyState = document.getElementById('empty-state');
+        const lightboxModal = document.getElementById('lightbox-modal');
+        const lightboxContent = document.getElementById('lightbox-content');
+        
+        let mediaItems = [];
+
+        // --- Core Storage Functions ---
+
+        function saveMedia() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(mediaItems));
+        }
+
+        function loadMedia() {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            mediaItems = stored ? JSON.parse(stored) : [];
+            renderGallery();
+        }
+
+        // --- Rendering and UI Functions ---
+
+        function renderGallery() {
+            mediaGrid.innerHTML = '';
+            
+            if (mediaItems.length === 0) {
+                emptyState.classList.remove('hidden');
+                return;
+            }
+            emptyState.classList.add('hidden');
+
+            mediaItems.forEach(item => {
+                const card = document.createElement('div');
+                card.id = `card-${item.id}`;
+                card.className = 'media-card relative overflow-hidden rounded-lg shadow-xl aspect-square bg-gray-800 group';
+
+                let mediaElement;
+
+                if (item.type === 'image') {
+                    mediaElement = document.createElement('img');
+                    mediaElement.src = item.dataURL;
+                    mediaElement.alt = 'Gallery Image';
+                } else if (item.type === 'video') {
+                    mediaElement = document.createElement('video');
+                    mediaElement.src = item.dataURL;
+                    mediaElement.controls = false; // Hide controls in preview
+                    mediaElement.muted = true;
+                    mediaElement.loop = true;
+                    mediaElement.autoplay = true;
+                }
+
+                if (mediaElement) {
+                    mediaElement.className = 'media-object';
+                    mediaElement.onclick = () => openLightbox(item);
+                    card.appendChild(mediaElement);
+                }
+
+                // Delete button overlay
+                const deleteButton = document.createElement('button');
+                deleteButton.innerHTML = '&#10005;'; // X mark
+                deleteButton.className = 'absolute top-2 right-2 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full opacity-0 group-hover:opacity-100 transition duration-300 z-10 text-lg shadow-lg';
+                deleteButton.onclick = (e) => {
+                    e.stopPropagation(); // Prevent opening lightbox
+                    deleteMedia(item.id);
+                };
+                card.appendChild(deleteButton);
+                
+                mediaGrid.appendChild(card);
+            });
+        }
+        
+        function deleteMedia(id) {
+            if (confirm('Naozaj chcete tento súbor odstrániť?')) {
+                mediaItems = mediaItems.filter(item => item.id !== id);
+                saveMedia();
+                renderGallery();
+            }
+        }
+
+        // --- Lightbox / Modal Functions ---
+
+        function openLightbox(item) {
+            lightboxContent.innerHTML = '';
+            
+            let fullMediaElement;
+            const classes = 'w-full h-full max-h-[85vh] object-contain';
+
+            if (item.type === 'image') {
+                fullMediaElement = document.createElement('img');
+                fullMediaElement.src = item.dataURL;
+                fullMediaElement.alt = 'Full View Image';
+            } else if (item.type === 'video') {
+                fullMediaElement = document.createElement('video');
+                fullMediaElement.src = item.dataURL;
+                fullMediaElement.controls = true;
+                fullMediaElement.autoplay = true;
+                fullMediaElement.loop = true;
+                fullMediaElement.setAttribute('playsinline', ''); // Better mobile support
+            }
+            
+            if (fullMediaElement) {
+                fullMediaElement.className = classes;
+                lightboxContent.appendChild(fullMediaElement);
+            }
+
+            lightboxModal.classList.remove('hidden');
+            document.body.style.overflow = 'hidden'; // Prevent scrolling background
+        }
+
+        function closeLightbox() {
+            lightboxModal.classList.add('hidden');
+            document.body.style.overflow = 'auto';
+
+            // Pause video if playing
+            const video = lightboxContent.querySelector('video');
+            if (video) {
+                video.pause();
+            }
+        }
+
+        // --- Upload Handling ---
+
+        fileInput.addEventListener('change', (event) => {
+            const files = event.target.files;
+            
+            if (!files.length) return;
+
+            Array.from(files).forEach(file => {
+                // Check if file size is excessive (e.g., over 10 MB, as Base64 storage is memory intensive)
+                if (file.size > 10 * 1024 * 1024) {
+                    alert(`Súbor ${file.name} je príliš veľký (max. 10MB odporúčané pre lokálne uloženie).`);
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const newItem = {
+                        id: Date.now().toString() + Math.random().toString(36).substring(2),
+                        dataURL: e.target.result,
+                        type: file.type.startsWith('image/') ? 'image' : 
+                              file.type.startsWith('video/') ? 'video' : 'unknown'
+                    };
+                    
+                    if (newItem.type !== 'unknown') {
+                        mediaItems.push(newItem);
+                        saveMedia();
+                        renderGallery();
+                    }
+                };
+                reader.onerror = () => {
+                    console.error("Chyba pri čítaní súboru.");
+                };
+                
+                // Read the file content as a Data URL (Base64 encoding)
+                reader.readAsDataURL(file);
+            });
+
+            // Clear the file input so the 'change' event fires again if the user selects the same files
+            fileInput.value = ''; 
+        });
+
+        // Initialize
+        window.onload = loadMedia;
+    </script>
+</body>
+</html>
